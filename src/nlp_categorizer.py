@@ -1,8 +1,13 @@
-from typing import List
+from typing import List, Dict
 from google.cloud import language_v1
 import requests
 from collections import defaultdict
+from urllib.parse import urlparse, urlunparse
+import requests
+from itertools import chain
+from logger import configure_logger 
 
+CAT_LOGGER = configure_logger("categorizer")
 
 class NLPCategorizer:
     def __init__(self):
@@ -10,26 +15,69 @@ class NLPCategorizer:
         self.client = language_v1.LanguageServiceClient()
         self.categories = defaultdict(list)
 
-    def categorize_websites(self, websites: List[str]) -> List[str]:
-        for website in websites:
-            # Placeholder for fetching website content
-            website_content = self.fetch_website_content(website)
+        # All entries by their ID and their website URL
+        self.entries: Dict[str, list] = defaultdict(lambda: "")
+
+    def categorize_websites(self) -> List[str]:
+        for id, websites in self.entries.items():
+            if not websites:
+                # Skip if there are no websites
+                continue
+            base_urls = set(self.get_base_url(website) for website in websites)
+            website_content = ""
+            for website in chain(base_urls, websites):
+                website_content = "\n".join(
+                    (website_content, self.fetch_website_content(website))
+                )
             # Use the classifyText method to categorize the content
+            if not website_content:
+                # Skip if there is no content
+                continue
+            CAT_LOGGER.info(f"Classifying content for ID: {id}")
             response = self.client.classify_text(document=website_content)
-            # Assuming one category per website for simplicity            
+            # Assuming one category per website for simplicity
             if response.categories:
-                category = max(response.categories, key=lambda x: x.confidence).name
+                category = max(
+                    response.categories, key=lambda x: x.confidence
+                ).name
+                # Get the name of the base category                
                 category = category.split("/")[1]
-                self.categories[category].append(website)
+                CAT_LOGGER.info(f"{id} classification: {category}")
+                self.categories[category].append(id)
+            else:
+                CAT_LOGGER.info(f"No categories found for ID: {id}")
         return self.categories
+
+    def get_base_url(self, website_url: str) -> str:
+        website_url = self.add_url_scheme(website_url)
+        parsed_url = urlparse(website_url)
+        # Construct the base URL using the scheme and netloc
+        return f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+    def add_url_scheme(self, website_url: str) -> str:
+        """Adds http:// to the URL if a scheme is missing."""
+        if not website_url.startswith(("http://", "https://")):
+            website_url = "http://" + website_url
+        return website_url
+
+    def clean_url(self, website_url: str) -> str:
+        """Cleans the URL and removes any query parameters."""
+        website_url = self.add_url_scheme(website_url)
+        parsed_url = urlparse(website_url)
+        # Remove any query parameters from the URL
+        cleaned_url = parsed_url._replace(query="").geturl()
+        cleaned_url = urlunparse(cleaned_url)
+        return cleaned_url
 
     def fetch_website_content(self, website_url: str) -> str:
         try:
+            # Check if the URL starts with http:// or https://
+            website_url = self.clean_url(website_url)
             # Set the user agent to a modern version of Google Chrome
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36"
             }
-            # Send a GET request to the website URL with the specified headers
+            # Send a GET request to the cleaned website URL with the specified headers
             response = requests.get(website_url, headers=headers)
             # Raise an exception if the request was unsuccessful
             response.raise_for_status()
@@ -37,7 +85,7 @@ class NLPCategorizer:
             return response.text
         except requests.RequestException as e:
             # Handle any errors that occur during the request
-            print(f"An error occurred: {e}")
+            CAT_LOGGER.error(f"An error occurred: {e}")
             return ""
 
     def classify_html(
@@ -74,7 +122,7 @@ class NLPCategorizer:
             # Get the name of the category representing the document.
             # See the predefined taxonomy of categories:
             # https://cloud.google.com/natural-language/docs/categories
-            print(f"Category name: {category.name}")
+            CAT_LOGGER.debug(f"Category name: {category.name}")
             # Get the confidence. Number representing how certain the classifier
             # is that this category represents the provided text.
-            print(f"Confidence: {category.confidence}")
+            CAT_LOGGER.debug(f"Confidence: {category.confidence}")
