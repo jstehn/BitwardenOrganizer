@@ -1,4 +1,4 @@
 .env
-API_KEY/
+.private/
 test_categorizer.ipynb
 src/__pycache__/*
