@@ -1,2 +1,4 @@
 .env
 API_KEY/
+test_categorizer.ipynb
+src/__pycache__/*
