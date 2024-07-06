@@ -16,7 +16,7 @@ class NLPCategorizer:
         self.categories = defaultdict(list)
 
         # All entries by their ID and their website URL
-        self.entries: Dict[str, list] = defaultdict(lambda: "")
+        self.entries: Dict[str, list] = defaultdict(list)
 
     def categorize_websites(self) -> List[str]:
         for id, websites in self.entries.items():
@@ -71,20 +71,16 @@ class NLPCategorizer:
 
     def fetch_website_content(self, website_url: str) -> str:
         try:
-            # Check if the URL starts with http:// or https://
             website_url = self.clean_url(website_url)
-            # Set the user agent to a modern version of Google Chrome
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36"
             }
-            # Send a GET request to the cleaned website URL with the specified headers
             response = requests.get(website_url, headers=headers)
             # Raise an exception if the request was unsuccessful
             response.raise_for_status()
             # Return the raw HTML content of the page
             return response.text
         except requests.RequestException as e:
-            # Handle any errors that occur during the request
             CAT_LOGGER.error(f"An error occurred: {e}")
             return ""
 
