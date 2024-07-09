@@ -1,8 +1,8 @@
-from typing import List, Dict, NamedTuple
+from typing import List, Dict
 from google.cloud import language_v1
 import requests
-from collections import defaultdict, namedtuple
-from urllib.parse import urlparse, urlunparse
+from collections import defaultdict
+from urllib.parse import urlparse
 import requests
 from itertools import chain
 from logger import configure_logger
@@ -39,6 +39,7 @@ class NLPCategorizer:
             # Assuming one category per website for simplicity
             if response:
                 category = response[0].name
+                print(response[0].name)
                 # Get the name of the base category
                 category = category.split("/")[1]
                 CAT_LOGGER.info(f"{id} classification: {category}")
