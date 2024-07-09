@@ -1,13 +1,14 @@
-from typing import List, Dict
+from typing import List, Dict, NamedTuple
 from google.cloud import language_v1
 import requests
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from urllib.parse import urlparse, urlunparse
 import requests
 from itertools import chain
-from logger import configure_logger 
+from logger import configure_logger
 
 CAT_LOGGER = configure_logger("categorizer")
+
 
 class NLPCategorizer:
     def __init__(self):
@@ -18,29 +19,27 @@ class NLPCategorizer:
         # All entries by their ID and their website URL
         self.entries: Dict[str, list] = defaultdict(list)
 
-    def categorize_websites(self) -> List[str]:
+    def categorize_websites(self) -> dict[str, List[str]]:
         for id, websites in self.entries.items():
             if not websites:
                 # Skip if there are no websites
                 continue
             base_urls = set(self.get_base_url(website) for website in websites)
-            website_content = ""
-            for website in chain(base_urls, websites):
-                website_content = "\n".join(
-                    (website_content, self.fetch_website_content(website))
-                )
+            all_urls = set(chain(base_urls, websites))
+            website_content = "\n\n".join(
+                self.fetch_website_content(site) for site in all_urls
+            )
             # Use the classifyText method to categorize the content
             if not website_content:
                 # Skip if there is no content
                 continue
             CAT_LOGGER.info(f"Classifying content for ID: {id}")
-            response = self.client.classify_text(document=website_content)
+            website_content = website_content[:900000]
+            response = self.classify_html(website_content)
             # Assuming one category per website for simplicity
-            if response.categories:
-                category = max(
-                    response.categories, key=lambda x: x.confidence
-                ).name
-                # Get the name of the base category                
+            if response:
+                category = response[0].name
+                # Get the name of the base category
                 category = category.split("/")[1]
                 CAT_LOGGER.info(f"{id} classification: {category}")
                 self.categories[category].append(id)
@@ -66,7 +65,6 @@ class NLPCategorizer:
         parsed_url = urlparse(website_url)
         # Remove any query parameters from the URL
         cleaned_url = parsed_url._replace(query="").geturl()
-        cleaned_url = urlunparse(cleaned_url)
         return cleaned_url
 
     def fetch_website_content(self, website_url: str) -> str:
@@ -94,8 +92,11 @@ class NLPCategorizer:
         text_content The text content to analyze.
         """
 
-        type_ = language_v1.Document.Type.HTML
-        document = {"content": html_content, "type_": type_}
+        document = language_v1.Document(
+            content=html_content, type_=language_v1.Document.Type.HTML
+        )
+        print(document)
+        response = self.client.classify_text(document=document)
 
         content_categories_version = (
             language_v1.ClassificationModelOptions.V2Model.ContentCategoriesVersion.V2
@@ -111,10 +112,10 @@ class NLPCategorizer:
             }
         )
         # Loop through classified categories returned from the API
-        response.categories = sorted(
+        categories = sorted(
             response.categories, key=lambda x: x.confidence, reverse=True
         )
-        for category in response.categories:
+        for category in categories:
             # Get the name of the category representing the document.
             # See the predefined taxonomy of categories:
             # https://cloud.google.com/natural-language/docs/categories
@@ -122,3 +123,4 @@ class NLPCategorizer:
             # Get the confidence. Number representing how certain the classifier
             # is that this category represents the provided text.
             CAT_LOGGER.debug(f"Confidence: {category.confidence}")
+        return categories
